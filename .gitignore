@@ -1,0 +1,33 @@
+# Python virtual environment
+.venv/
+venv/
+
+# Python cache
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Environment variables and secrets
+.env
+.env.*
+!.env.example
+
+# IDE
+.vscode/
+.idea/
+
+# TensorFlow / model weights
+*.h5
+*.keras
+*.pth
+*.pt
+
+# Private face images
+data/reference/
+data/evaluation/
+
+# Generated results
+results/
