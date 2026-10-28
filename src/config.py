@@ -2,7 +2,7 @@
 # src/config.py
 
 # Reference image used to register the known person
-REFERENCE_PATH = "data/reference/my_face.jpg"
+REFERENCE_PATH = "data/reference/image.jpg"
 
 # Face recognition threshold (cosine similarity)
 SIMILARITY_THRESHOLD = 0.7
