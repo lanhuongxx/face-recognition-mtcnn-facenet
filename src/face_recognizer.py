@@ -1,5 +1,6 @@
 import numpy as np
 import cv2
+import time
 
 from src.config import (
     SIMILARITY_THRESHOLD,
@@ -72,32 +73,47 @@ class FaceRecognizer:
 
         self.reference_embedding = embedding
 
+    
     def recognize(self, frame: np.ndarray) -> list[dict]:
-        """Nhận diện các khuôn mặt hợp lệ trong một frame."""
-
         if self.reference_embedding is None:
             raise RuntimeError("Reference face is not registered")
 
         if frame is None or frame.size == 0:
             return []
 
+        # Step 1: Measure MTCNN detection
+        start = time.perf_counter()
         faces = self.detector.detect(frame)
+        detection_time = time.perf_counter() - start
+
+        alignment_time = 0.0
+        embedding_time = 0.0
+        matching_time = 0.0
+
         results = []
 
         for face in faces:
-
             if not self._is_valid_face(face):
                 continue
 
             try:
+                # Step 2: Measure face alignment
+                start = time.perf_counter()
                 aligned_face = align_face(frame, face)
+                alignment_time += time.perf_counter() - start
 
+                # Step 3: Measure FaceNet embedding
+                start = time.perf_counter()
                 embedding = self.embedder.extract(aligned_face)
+                embedding_time += time.perf_counter() - start
 
+                # Step 4: Measure cosine similarity
+                start = time.perf_counter()
                 match_result = self.matcher.match(
                     self.reference_embedding,
                     embedding
                 )
+                matching_time += time.perf_counter() - start
 
             except (ValueError, cv2.error) as error:
                 print(f"Skipping invalid face: {error}")
@@ -108,5 +124,12 @@ class FaceRecognizer:
                 "similarity": match_result["similarity"],
                 "label": match_result["label"]
             })
+
+        print(
+            f"MTCNN: {detection_time:.3f}s | "
+            f"Alignment: {alignment_time:.3f}s | "
+            f"FaceNet: {embedding_time:.3f}s | "
+            f"Matching: {matching_time:.4f}s"
+        )
 
         return results

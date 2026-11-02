@@ -2,6 +2,9 @@
 import cv2
 import numpy as np
 from mtcnn import MTCNN
+from src.mtcnn_compat import apply_mtcnn_patch
+
+apply_mtcnn_patch()
 
 
 class FaceDetector:

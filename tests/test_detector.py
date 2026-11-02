@@ -1,13 +1,14 @@
 
 import numpy as np
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from src.face_detector import FaceDetector
 
 
 def test_detect_empty_frame():
-    detector = FaceDetector()
+    with patch("src.face_detector.MTCNN"):
+        detector = FaceDetector()
 
     with pytest.raises(ValueError):
         detector.detect(None)

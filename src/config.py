@@ -1,8 +1,10 @@
-
-# src/config.py
+from pathlib import Path
 
 # Reference image used to register the known person
-REFERENCE_PATH = "data/reference/my_face.jpg"
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+REFERENCE_PATH = str(
+    PROJECT_ROOT / "data" / "reference" / "my_face.jpg"
+)
 
 # Face recognition threshold (cosine similarity)
 SIMILARITY_THRESHOLD = 0.70

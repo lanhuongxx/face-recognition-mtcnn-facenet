@@ -28,6 +28,13 @@ __pycache__/
 # Private face images
 data/reference/
 data/evaluation/
+data/gt_db/
 
 # Generated results
 results/
+
+# Generated benchmark and evaluation outputs
+outputs/
+
+# Local datasets
+data/pair_evaluation/
