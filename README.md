@@ -1,165 +1,142 @@
-# Nhận diện khuôn mặt thời gian thực
+# Nhận diện khuôn mặt thời gian thực — MTCNN, FaceNet và Optical Flow
 
-Dự án minh họa cách xác minh khuôn mặt qua webcam bằng **MTCNN**, **FaceNet** và **OpenCV**. Chương trình so sánh khuôn mặt trước camera với **một ảnh tham chiếu** do bạn cung cấp, sau đó hiển thị nhãn `Matched` hoặc `Unknown`.
+Đồ án thị giác máy tính triển khai **xác minh khuôn mặt so với một ảnh tham chiếu** trên webcam. Hệ thống sử dụng MTCNN để phát hiện khuôn mặt và mốc mắt, căn chỉnh mặt, trích xuất embedding FaceNet 128 chiều (qua DeepFace), sau đó so sánh bằng cosine similarity. Lucas–Kanade Optical Flow hỗ trợ theo dõi giữa các lượt nhận diện bất đồng bộ.
 
-> Đây là project học tập/thực nghiệm, không phải hệ thống xác thực an toàn hay công cụ nhận diện nhiều người.
+> **Phạm vi hiện tại:** ứng dụng chính `main.py` chỉ chấp nhận kết quả nhận diện khi **có đúng một khuôn mặt**. Đây không phải hệ thống định danh nhiều người, không có kiểm tra người thật (liveness), và không phù hợp dùng trực tiếp cho kiểm soát ra vào.
 
-## Chương trình hoạt động như thế nào?
+## 1. Chức năng và nguyên lý
 
-```text
-Ảnh tham chiếu ──► MTCNN ──► Căn chỉnh khuôn mặt ──► FaceNet ──► Embedding tham chiếu
+1. **Đăng ký ảnh tham chiếu:** đọc `data/reference/my_face.jpg`, phát hiện và trích xuất vector đặc trưng.
+2. **Nhận diện bất đồng bộ:** định kỳ chạy MTCNN → alignment → FaceNet → cosine similarity trên ảnh chụp từ webcam.
+3. **Ra quyết định:** `Matched` khi similarity **≥ 0.70**, ngược lại là `Unknown`. Ngưỡng là thiết lập của đồ án, chưa phải ngưỡng xác thực bảo mật đã hiệu chuẩn.
+4. **Theo dõi:** Optical Flow Lucas–Kanade theo dõi khuôn mặt giữa các lần nhận diện; cơ chế lịch sử frame/replay giúp đồng bộ kết quả nhận diện đến trễ với frame hiện tại.
+5. **Phục hồi:** có xử lý lỗi từ worker, neo lại tracker khi kết quả khớp, reset sau nhiều kết quả không hợp lệ hoặc IoU thấp; nếu khởi tạo tracker thất bại có thể hiển thị khung detection dự phòng rất ngắn (0,5 giây).
 
-Webcam ──► Nhận diện khuôn mặt ──► FaceNet ──► Cosine similarity
-                                                        │
-                                        So với ngưỡng 0,70
-                                                        │
-                                                Matched / Unknown
+**Quy tắc hiển thị:** xanh lá = `Matched`; đỏ = `Unknown`; vàng = `Detecting...`. Khi hiện `[detection]`, đó là khung tạm, **không phải** kết quả đang được Optical Flow theo dõi.
 
-Các frame webcam ──► Optical Flow ──► Theo dõi khung khuôn mặt
-```
+**Xử lý nhiều khuôn mặt:** `main.py` **không chọn** khuôn mặt có similarity cao nhất. Nếu kết quả MTCNN/nhận diện có 0 hoặc từ 2 khuôn mặt trở lên, ứng dụng không cập nhật danh tính/tracker từ kết quả đó; khi kết quả hợp lệ cùng loại lặp lại đủ ngưỡng, tracker đang hoạt động có thể được reset. Benchmark độc lập có thể dùng cách cập nhật tracker khác và không đại diện toàn bộ logic `main.py`.
 
-Các bước chính:
+## 2. Cấu trúc thư mục
 
-1. **MTCNN** tìm khuôn mặt và các điểm mốc trên ảnh.
-2. Chương trình căn chỉnh khuôn mặt dựa trên vị trí hai mắt.
-3. **FaceNet** trích xuất embedding 128 chiều qua thư viện DeepFace.
-4. **Cosine similarity** so sánh embedding webcam với embedding tham chiếu. Điểm từ `0,70` trở lên được gán nhãn `Matched`.
-5. **Lucas–Kanade Optical Flow** theo dõi khung khuôn mặt giữa các lần nhận diện.
-
-Nhận diện chạy bất đồng bộ, tối đa khoảng **một lần mỗi 2 giây**; theo dõi cập nhật trên các frame webcam. Nhãn nhận diện cũ hết hạn sau **5 giây**. Nếu có nhiều khuôn mặt, ứng dụng hiện chọn kết quả có similarity cao nhất và chỉ theo dõi một khuôn mặt.
-
-## Cấu trúc dự án
+Cấu trúc các file chính được dùng (tên file notebook trong bản lưu của bạn có thể khác):
 
 ```text
 lab5_face_ID/
-├── main.py                              # Chạy ứng dụng webcam
-├── benchmark_webcam.py                  # Đo hiệu năng webcam và ghi CSV
-├── src/
-│   ├── config.py                        # Ảnh tham chiếu, ngưỡng, camera
-│   ├── camera.py                        # Mở, đọc và giải phóng camera
-│   ├── face_detector.py                 # Phát hiện khuôn mặt bằng MTCNN
-│   ├── mtcnn_compat.py                  # Hỗ trợ tương thích MTCNN
-│   ├── face_alignment.py                # Căn chỉnh khuôn mặt theo mắt
-│   ├── face_embedder.py                 # Trích xuất embedding FaceNet
-│   ├── face_matcher.py                  # Tính cosine similarity
-│   ├── face_recognizer.py               # Kết nối các bước nhận diện
-│   ├── face_tracker.py                  # Theo dõi bằng Optical Flow / MIL
-│   └── visualizer.py                    # Vẽ kết quả lên hình
-├── data/
-│   ├── reference/                       # Ảnh dùng để đăng ký khuôn mặt
-│   ├── evaluation/                      # Ảnh thực nghiệm cục bộ
-│   ├── gt_db/                           # Bộ dữ liệu Georgia Tech cục bộ
-│   └── pair_evaluation/pairs.csv        # Các cặp ảnh dùng để đánh giá
-├── document/
-│   ├── 01_dataset_exploration_final.ipynb
-│   └── 02_face_matching_visualization_final.ipynb
-├── outputs/
-│   ├── evaluation/pair_results.csv
-│   └── benchmark/                       # CSV kết quả benchmark
-├── scripts/
-│   ├── checks/                          # Kiểm tra từng thành phần
-│   └── debug/                           # Script thử nghiệm/gỡ lỗi
-├── tests/                               # Unit tests
+├── main.py                              # Ứng dụng webcam chính (P3)
+├── benchmark_webcam.py                  # Chương trình benchmark độc lập (nếu đã đổi tên)
+│   hoặc benchmark_webcam_updated.py
 ├── requirements.txt
-└── .gitignore
+├── README.md
+├── .gitignore
+├── src/
+│   ├── config.py
+│   ├── camera.py
+│   ├── face_detector.py
+│   ├── face_alignment.py
+│   ├── face_embedder.py
+│   ├── face_matcher.py
+│   ├── face_recognizer.py
+│   ├── face_tracker.py                 # Bao gồm OpticalFlowTracker
+│   ├── frame_sync.py                   # Đồng bộ frame và replay
+│   └── visualizer.py                   # Tiện ích hiển thị (không bắt buộc được gọi từ main)
+├── notebooks/
+│   ├── 01_dataset_exploration_final.ipynb
+│   └── 02_face_matching_visualization_reviewed_final.ipynb
+├── data/
+│   ├── gt_db/                          # Georgia Tech Face Database (chuẩn bị riêng)
+│   ├── reference/                      # Ảnh tham chiếu riêng tư
+│   └── evaluation/                     # Ảnh kiểm thử cá nhân (nếu có)
+├── outputs/
+│   ├── evaluation/                     # Kết quả đánh giá cặp ảnh
+│   └── benchmark/                      # CSV benchmark
+└── tests/                              # Kiểm thử tự động (nếu có)
 ```
 
-## Cài đặt trên Windows
+**Chú ý:** tên notebook trên là tên đề xuất để lưu trong repo. Nếu file của bạn mang hậu tố `(2)` hoặc tên khác, dùng đúng tên file thực tế; không cần tạo thư mục `scripts/` hay khôi phục notebook cũ chỉ để khớp hướng dẫn.
 
-Mở PowerShell tại thư mục gốc dự án, sau đó tạo và kích hoạt môi trường ảo:
+## 3. Cài đặt
+
+Môi trường đã dùng trong quá trình phát triển: **Windows, Python 3.13, `.venv`**, webcam và các thư viện trong `requirements.txt`.
 
 ```powershell
+# Chạy tại thư mục gốc project
 py -3.13 -m venv .venv
 .\.venv\Scripts\Activate.ps1
-```
-
-Cài các thư viện và kiểm tra dependency:
-
-```powershell
-python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
 python -m pip check
 ```
 
-`requirements.txt` đang ghim các phiên bản thư viện dùng cho môi trường project. TensorFlow, OpenCV và các thư viện liên quan có thể phụ thuộc hệ điều hành/Python; nếu cài trên môi trường khác, hãy kiểm tra tính tương thích của các phiên bản.
+**Lưu ý về dependency:** danh sách phiên bản hiện tại được ghi từ môi trường phát triển; khả năng cài lại trên môi trường sạch **chưa được xác nhận**. Nếu `pip check` báo thiếu dependency của DeepFace, cần kiểm tra và chuẩn hóa `requirements.txt` ở bước tiếp theo. Không tự cài chồng các biến thể `opencv-python` và `opencv-*-headless` trong môi trường webcam đang hoạt động.
 
-Ở lần chạy đầu, thư viện có thể cần tải trọng số mô hình đã huấn luyện. Việc này cần kết nối Internet.
+Lần đầu sử dụng FaceNet có thể cần kết nối mạng để tải trọng số mô hình.
 
-## Chuẩn bị ảnh tham chiếu
+## 4. Chuẩn bị dữ liệu và chạy ứng dụng
 
-Đặt ảnh rõ nét, chứa **đúng một khuôn mặt** tại:
+Đặt ảnh chứa **một khuôn mặt rõ nét** tại:
 
 ```text
 data/reference/my_face.jpg
 ```
 
-Ứng dụng lấy đường dẫn này từ `REFERENCE_PATH` trong `src/config.py`. Nếu muốn dùng file khác, hãy cập nhật cấu hình tương ứng.
+Đường dẫn và ngưỡng được cấu hình trong `src/config.py` (`REFERENCE_PATH`, `SIMILARITY_THRESHOLD`, `CAMERA_ID`).
 
-Ảnh trong `data/reference/`, `data/evaluation/` và dữ liệu thử nghiệm là dữ liệu cục bộ, có thể không được đưa lên Git. Hãy chỉ sử dụng ảnh khuôn mặt khi có sự đồng ý phù hợp và không công khai dữ liệu cá nhân.
-
-## Chạy ứng dụng webcam
-
-Đảm bảo đã kết nối webcam, đặt ảnh tham chiếu đúng vị trí, rồi chạy từ thư mục gốc:
+Chạy:
 
 ```powershell
 python main.py
 ```
 
-Ứng dụng đăng ký khuôn mặt từ ảnh tham chiếu, mở webcam và hiển thị khung theo dõi cùng nhãn nhận diện. Nhấn **Q** trên cửa sổ webcam để thoát. Nếu không mở được camera, hãy kiểm tra quyền truy cập camera và đóng các ứng dụng khác đang sử dụng thiết bị.
+Nhấn **Q** trong cửa sổ webcam để thoát. Console in thời gian nhận diện và bảng đếm lỗi/reset khi thoát.
 
-Các giá trị chính có thể điều chỉnh trong `src/config.py`:
+## 5. Notebook thực nghiệm
 
-| Cấu hình | Mặc định | Ý nghĩa |
-|---|---:|---|
-| `REFERENCE_PATH` | `data/reference/my_face.jpg` | Ảnh đăng ký khuôn mặt |
-| `SIMILARITY_THRESHOLD` | `0.70` | Ngưỡng phân loại `Matched` |
-| `CAMERA_ID` | `0` | Chỉ số webcam |
-| `MIN_FACE_SIZE` | `50` | Kích thước khuôn mặt tối thiểu (pixel) |
-| `MIN_CONFIDENCE` | `0.90` | Độ tin cậy phát hiện tối thiểu |
+Mở VS Code/Jupyter bằng kernel `.venv`, sau đó chạy lần lượt:
 
-Ngưỡng `0,70` là giá trị dùng cho bài thực nghiệm, không được hiệu chỉnh để bảo đảm an toàn hoặc phù hợp cho mọi người và điều kiện camera.
+- **Notebook 01 — Dataset exploration:** thống kê Georgia Tech Face Database; trong lần chạy đã rà soát: 50 người, 750 ảnh.
+- **Notebook 02 — Face matching visualization:** trực quan MTCNN, alignment, embedding FaceNet, similarity; thí nghiệm **A/B/C** (A = crop MTCNN thô; B = crop vuông + lề, không xoay; C = crop vuông + lề + xoay theo hai mắt); đánh giá 100 cặp ảnh; phân tích threshold; benchmark webcam.
 
-## Chạy kiểm thử
+Để chạy lại notebook cần chuẩn bị dữ liệu ở `data/gt_db/`, các ảnh tham chiếu/kiểm thử được notebook sử dụng và file CSV đánh giá/benchmark tương ứng. Notebook 02 có phần xác định `PROJECT_DIR` để chỉ đến thư mục project nếu working directory của Jupyter khác nơi chứa mã nguồn.
+
+**Diễn giải:** so sánh B → C giúp xem tác động của phép xoay khi giữ cách crop nhất quán hơn; kết quả trên ít ảnh không đủ chứng minh alignment luôn có lợi. Độ chính xác 100% trên 100 cặp thử **không** đồng nghĩa độ chính xác 100% ngoài thực tế.
+
+## 6. Benchmark webcam
+
+Nếu file đang là `benchmark_webcam_updated.py`:
+
+```powershell
+python benchmark_webcam_updated.py
+```
+
+Nếu đã đặt tên là `benchmark_webcam.py`, thay bằng `python benchmark_webcam.py`.
+
+Kết quả CSV được ghi vào `outputs/benchmark/` (ví dụ `summary.csv`, `tracking_latency.csv`, `recognition_latency.csv`).
+
+**Phiên đo gần nhất được báo cáo:** 60,02 giây, 1.794 frame, FPS vòng lặp hiển thị trung bình **29,89**, tracking latency trung bình **1,56 ms** (1.778 mẫu), recognition latency trung bình **401,22 ms** (30 mẫu). Đây là **benchmark độc lập**, không phải phép đo toàn bộ logic replay/reanchor/fallback trong `main.py` P3. FPS hiển thị không đồng nghĩa số lượt FaceNet nhận diện mỗi giây.
+
+## 7. Kiểm thử
+
+Nếu có thư mục `tests/`:
 
 ```powershell
 python -m pytest tests/ -v
 ```
 
-Tests bao phủ các thành phần camera, detector, alignment, embedder, matcher, recognizer, tracker và visualizer. Phần lớn là unit test; kết quả test không thay thế cho việc đánh giá độ chính xác trên dữ liệu thực tế.
+Nên thử webcam lần lượt: mặt tham chiếu, mặt khác, rời khung rồi quay lại, chuyển động nhanh, một phần khuôn mặt bị che, và thoát bằng Q. Việc bị che có thể làm MTCNN không phát hiện mặt hoặc FaceNet trả về `Unknown`; đây là giới hạn cần nêu, không tự động là lỗi chương trình.
 
-## Đo hiệu năng webcam
+## 8. Giới hạn và bảo mật dữ liệu
 
-```powershell
-python benchmark_webcam.py
-```
+- Hiện chỉ xử lý **một khuôn mặt** trong ứng dụng chính; nhiều khuôn mặt có thể làm tracker bị reset.
+- MTCNN/FaceNet nhạy với điều kiện ánh sáng, góc nhìn, che khuất và chất lượng ảnh.
+- Ngưỡng 0,70 chưa được hiệu chuẩn từ tập validation độc lập đủ lớn.
+- Benchmark và ứng dụng chính có thể khác logic tracking, vì vậy không dùng FPS benchmark để khẳng định đầy đủ độ chính xác tracker ứng dụng chính.
+- Lịch sử frame và thao tác copy ảnh có thể tăng RAM khi dùng webcam độ phân giải cao.
+- Không có chống giả mạo (anti-spoofing) hoặc xác thực người thật.
+- **Không đưa `data/reference/my_face.jpg` hay ảnh riêng tư lên GitHub công khai.** Kiểm tra cả file đã được Git track trước khi push; `.gitignore` không tự xóa file khỏi lịch sử Git.
 
-Benchmark chạy tối đa khoảng **60 giây**, có thể nhấn **Q** để dừng sớm. Giữ một khuôn mặt trong khung hình và di chuyển tự nhiên để đo. Kết quả được lưu ở:
+## 9. Thành phần công nghệ
 
-```text
-outputs/benchmark/summary.csv
-outputs/benchmark/tracking_latency.csv
-outputs/benchmark/recognition_latency.csv
-```
+Python · OpenCV · MTCNN · DeepFace/FaceNet · TensorFlow/tf-keras · NumPy · Jupyter · Pandas · Matplotlib · pytest.
 
-FPS trong báo cáo là tốc độ vòng lặp hiển thị, không phải tốc độ suy luận FaceNet. Chương trình benchmark cũng cần ảnh tham chiếu và webcam hoạt động.
+---
 
-## Notebook và dữ liệu đánh giá
-
-Trong thư mục `document/`:
-
-- **`01_dataset_exploration_final.ipynb`**: khám phá bộ Georgia Tech Face Database trong `data/gt_db/` và kiểm tra các cặp ảnh đánh giá.
-- **`02_face_matching_visualization_final.ipynb`**: minh họa MTCNN, căn chỉnh, FaceNet, cosine similarity; so sánh có/không căn chỉnh và trực quan hóa kết quả đánh giá/benchmark.
-
-Notebook sử dụng dữ liệu cục bộ như `data/gt_db/`, `data/pair_evaluation/pairs.csv`, ảnh trong `data/reference/` và `data/evaluation/`, cùng một số CSV trong `outputs/`. Các dữ liệu này có thể không được đóng gói cùng repository. Hãy kiểm tra các đường dẫn trong notebook và chuẩn bị đúng dữ liệu trước khi chạy; nên chạy notebook khám phá dữ liệu trước notebook trực quan hóa.
-
-Ảnh tham chiếu của notebook có thể khác ảnh mà ứng dụng webcam sử dụng. Nếu cần so sánh kết quả giữa notebook và webcam, hãy đảm bảo cả hai dùng cùng một ảnh tham chiếu.
-
-## Giới hạn và lưu ý
-
-- Ứng dụng xác minh với **một ảnh tham chiếu**, không quản lý cơ sở dữ liệu danh tính.
-- Tracking chỉ theo dõi một khuôn mặt. Nếu khuôn mặt di chuyển nhanh, kết quả nhận diện từ frame cũ có thể không còn khớp hoàn toàn với vị trí hiện tại.
-- Độ sáng, góc mặt, che khuất và kích thước khuôn mặt có thể ảnh hưởng đến kết quả.
-- Project không có phát hiện giả mạo/liveness detection; ảnh hoặc video có thể đánh lừa hệ thống.
-- Điểm similarity và kết quả thử nghiệm không chứng minh độ chính xác trong mọi tình huống.
-
-**Chỉ sử dụng cho mục đích học tập và thử nghiệm; không dùng làm cơ chế kiểm soát truy cập hoặc quyết định an toàn quan trọng.**
+*Tài liệu mô tả phiên bản ứng dụng một khuôn mặt và các thí nghiệm đã thực hiện; không tuyên bố hệ thống đã sẵn sàng triển khai bảo mật thực tế.*
